@@ -1,0 +1,59 @@
+// Prisma Client 生成器配置
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 数据源配置：使用 SQLite 数据库
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// 用户模型
+model User {
+  id        Int      @id @default(autoincrement())  // 用户 ID（自增主键）
+  username  String   @unique                         // 用户名（唯一）
+  balance   Decimal  @default(0)                     // 当前余额
+  createdAt DateTime @default(now())                  // 创建时间
+  bets      Bet[]                                    // 关联的下注记录（一对多）
+  ledgers   Ledger[]                                 // 关联的账本记录（一对多）
+}
+
+// 下注模型
+model Bet {
+  id        String   @id @default(uuid())            // 下注 ID（UUID 主键）
+  userId    Int                                       // 关联的用户 ID
+  gameId    String                                    // 游戏 ID
+  amount    Decimal                                   // 下注金额
+  status    String   @default("PLACED")               // 状态：PLACED（已下注）| SETTLED（已结算）| CANCELLED（已取消）
+  createdAt DateTime @default(now())                  // 创建时间
+  updatedAt DateTime @updatedAt                       // 更新时间
+  user      User     @relation(fields: [userId], references: [id])  // 关联用户
+  ledgers   Ledger[]                                  // 关联的账本记录（一对多）
+}
+
+// 账本模型
+// 记录所有余额变动，是余额变动的唯一真实来源
+model Ledger {
+  id          Int      @id @default(autoincrement())  // 账本 ID（自增主键）
+  userId      Int                                       // 关联的用户 ID
+  betId       String?                                   // 关联的下注 ID（可选）
+  type        String                                    // 类型：DEPOSIT（充值）| BET_DEBIT（下注扣款）| BET_CREDIT（下注发奖）| BET_REFUND（下注退款）
+  amount      Decimal                                   // 交易金额（正数表示增加，负数表示减少）
+  description String?                                   // 交易描述
+  createdAt   DateTime @default(now())                  // 创建时间
+  user        User     @relation(fields: [userId], references: [id])  // 关联用户
+  bet         Bet?     @relation(fields: [betId], references: [id])   // 关联下注
+}
+
+// 幂等键模型
+// 用于缓存 API 响应，支持幂等性操作
+model IdempotencyKey {
+  id        String   @id                              // 幂等键 ID
+  endpoint  String                                     // API 端点路径
+  response  String                                     // 缓存的响应（JSON 字符串）
+  createdAt DateTime @default(now())                   // 创建时间
+
+  // 联合唯一约束：同一端点的幂等键唯一
+  @@unique([endpoint, id])
+}
