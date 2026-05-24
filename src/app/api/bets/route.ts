@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BetService } from '@/lib/services/bet.service'
-import { checkIdempotency, saveIdempotency } from '@/lib/idempotency'
+import { checkIdempotency, saveIdempotency, generateRequestHash } from '@/lib/idempotency'
 
 /**
  * 下注接口
  * POST /api/bets
- * 
+ *
  * 功能：创建新下注，验证余额并扣除
  * 需要 Idempotency-Key 请求头支持幂等性
  */
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const idempotencyKey = request.headers.get('Idempotency-Key')
-    const endpoint = '/api/bets'
+    const operation = '/api/bets'
 
     // 验证幂等键
     if (!idempotencyKey) {
@@ -33,10 +33,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // 生成请求哈希
+    const requestHash = generateRequestHash(body)
+
     // 检查幂等键是否已存在
-    const idempotencyCheck = await checkIdempotency(idempotencyKey, endpoint)
+    const idempotencyCheck = await checkIdempotency(
+      idempotencyKey,
+      operation,
+      requestHash
+    )
     if (idempotencyCheck.exists) {
-      return NextResponse.json(idempotencyCheck.response)
+      return NextResponse.json(idempotencyCheck.response, {
+        status: idempotencyCheck.statusCode,
+      })
     }
 
     // 调用服务层创建下注
@@ -51,7 +60,13 @@ export async function POST(request: NextRequest) {
     }
 
     // 保存幂等键和响应
-    await saveIdempotency(idempotencyKey, endpoint, response)
+    await saveIdempotency(
+      idempotencyKey,
+      operation,
+      requestHash,
+      201,
+      response
+    )
 
     return NextResponse.json(response, { status: 201 })
   } catch (error) {
