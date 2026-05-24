@@ -4,7 +4,7 @@ import { BetService } from '@/lib/services/bet.service'
 /**
  * 取消下注接口
  * POST /api/bets/:id/cancel
- * 
+ *
  * 功能：取消指定下注并全额退款
  * 状态流转：PLACED → CANCELLED
  */
@@ -14,7 +14,7 @@ export async function POST(
 ) {
   try {
     // 调用服务层取消下注
-    const bet = await BetService.cancelBet(params.id)
+    const bet = await BetService.cancelBet(parseInt(params.id))
 
     return NextResponse.json({
       id: bet.id,
