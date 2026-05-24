@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { LedgerService } from '@/lib/services/ledger.service'
-import { ReconciliationResponse } from '@/types'
+import { ReconciliationResponse, BetStatus, LedgerType } from '@/types'
 
 /**
  * 管理员对账接口
  * GET /api/admin/reconcile?userId=xxx
- * 
+ *
  * 功能：
  * 1. 对比数据库余额和账本计算余额，检测不一致
  * 2. 统计各状态下注数量
@@ -57,7 +57,9 @@ export async function GET(request: NextRequest) {
     }
 
     betStats.forEach((stat) => {
-      stats[stat.status.toLowerCase() as keyof typeof stats] = stat._count
+      if (stat.status === BetStatus.PLACED) stats.placed = stat._count
+      if (stat.status === BetStatus.SETTLED) stats.settled = stat._count
+      if (stat.status === BetStatus.CANCELLED) stats.cancelled = stat._count
     })
 
     const anomalies: string[] = []
@@ -73,7 +75,7 @@ export async function GET(request: NextRequest) {
     const placedBets = await prisma.bet.findMany({
       where: {
         userId: userIdNum,
-        status: 'PLACED',
+        status: BetStatus.PLACED,
       },
       include: {
         ledgers: true,
@@ -81,7 +83,7 @@ export async function GET(request: NextRequest) {
     })
 
     for (const bet of placedBets) {
-      const hasDebit = bet.ledgers.some((l) => l.type === 'BET_DEBIT')
+      const hasDebit = bet.ledgers.some((l) => l.type === LedgerType.BET_DEBIT)
       if (!hasDebit) {
         anomalies.push(`Missing BET_DEBIT ledger for bet ${bet.id}`)
       }
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest) {
     const settledBets = await prisma.bet.findMany({
       where: {
         userId: userIdNum,
-        status: 'SETTLED',
+        status: BetStatus.SETTLED,
       },
       include: {
         ledgers: true,
@@ -99,7 +101,7 @@ export async function GET(request: NextRequest) {
     })
 
     for (const bet of settledBets) {
-      const creditCount = bet.ledgers.filter((l) => l.type === 'BET_CREDIT').length
+      const creditCount = bet.ledgers.filter((l) => l.type === LedgerType.BET_CREDIT).length
       if (creditCount > 1) {
         anomalies.push(`Duplicate BET_CREDIT for bet ${bet.id}`)
       }
@@ -109,7 +111,7 @@ export async function GET(request: NextRequest) {
     const cancelledBets = await prisma.bet.findMany({
       where: {
         userId: userIdNum,
-        status: 'CANCELLED',
+        status: BetStatus.CANCELLED,
       },
       include: {
         ledgers: true,
@@ -117,7 +119,7 @@ export async function GET(request: NextRequest) {
     })
 
     for (const bet of cancelledBets) {
-      const hasRefund = bet.ledgers.some((l) => l.type === 'BET_REFUND')
+      const hasRefund = bet.ledgers.some((l) => l.type === LedgerType.BET_REFUND)
       if (!hasRefund) {
         anomalies.push(`Missing BET_REFUND ledger for cancelled bet ${bet.id}`)
       }
