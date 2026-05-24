@@ -1,4 +1,5 @@
 import { prisma } from '../prisma'
+import { LedgerType } from '../../types'
 
 /**
  * 账本服务类
@@ -7,79 +8,54 @@ import { prisma } from '../prisma'
  */
 export class LedgerService {
   /**
-   * 创建充值账本记录
+   * 应用账本条目并更新用户余额
+   * 这是余额变动的唯一入口点
+   * @param tx - Prisma 事务客户端
    * @param userId - 用户 ID
-   * @param amount - 充值金额（正数）
-   * @returns 创建的账本记录
+   * @param amount - 金额（正数表示增加，负数表示减少）
+   * @param type - 账本类型
+   * @param betId - 关联的下注 ID（可选）
+   * @param description - 交易描述（可选）
+   * @returns 更新后的用户
    */
-  static async createDepositLedger(userId: number, amount: number) {
-    return await prisma.ledger.create({
-      data: {
-        userId,
-        type: 'DEPOSIT',
-        amount: amount,
-        description: 'Deposit',
-      },
-    })
-  }
-
-  /**
-   * 创建下注扣款账本记录
-   * @param userId - 用户 ID
-   * @param betId - 下注 ID
-   * @param amount - 下注金额（负数）
-   * @returns 创建的账本记录
-   */
-  static async createBetDebitLedger(userId: number, betId: string, amount: number) {
-    return await prisma.ledger.create({
-      data: {
-        userId,
-        betId,
-        type: 'BET_DEBIT',
-        amount: -amount,
-        description: `Bet placed for game`,
-      },
-    })
-  }
-
-  /**
-   * 创建下注发奖账本记录
-   * 赢取时返还 2 倍下注金额（本金 + 利润）
-   * @param userId - 用户 ID
-   * @param betId - 下注 ID
-   * @param amount - 原下注金额
-   * @returns 创建的账本记录
-   */
-  static async createBetCreditLedger(userId: number, betId: string, amount: number) {
-    return await prisma.ledger.create({
+  static async applyLedgerEntry(
+    tx: any,
+    {
+      userId,
+      amount,
+      type,
+      betId,
+      description,
+    }: {
+      userId: number
+      amount: number
+      type: LedgerType
+      betId?: number
+      description?: string
+    }
+  ) {
+    // 创建账本记录
+    await tx.ledger.create({
       data: {
         userId,
         betId,
-        type: 'BET_CREDIT',
-        amount: amount * 2,
-        description: `Bet won - payout`,
+        type,
+        amount,
+        description,
       },
     })
-  }
 
-  /**
-   * 创建下注退款账本记录
-   * 取消下注时全额退款
-   * @param userId - 用户 ID
-   * @param betId - 下注 ID
-   * @param amount - 原下注金额（正数）
-   * @returns 创建的账本记录
-   */
-  static async createBetRefundLedger(userId: number, betId: string, amount: number) {
-    return await prisma.ledger.create({
+    // 更新用户余额
+    const updated = await tx.user.update({
+      where: { id: userId },
       data: {
-        userId,
-        betId,
-        type: 'BET_REFUND',
-        amount: amount,
-        description: `Bet cancelled - refund`,
+        balance: {
+          increment: amount,
+        },
       },
     })
+
+    return updated
   }
 
   /**
@@ -89,10 +65,11 @@ export class LedgerService {
    * @returns 计算得出的余额
    */
   static async calculateBalance(userId: number): Promise<number> {
-    const ledgers = await prisma.ledger.findMany({
+    const result = await prisma.ledger.aggregate({
       where: { userId },
+      _sum: { amount: true },
     })
 
-    return ledgers.reduce((sum: number, ledger) => sum + Number(ledger.amount), 0)
+    return Number(result._sum.amount ?? 0)
   }
 }
