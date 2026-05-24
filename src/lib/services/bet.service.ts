@@ -1,4 +1,6 @@
 import { prisma } from '../prisma'
+import { LedgerService } from './ledger.service'
+import { BetStatus, BetResult } from '../../types'
 
 /**
  * 下注服务类
@@ -25,36 +27,26 @@ export class BetService {
         throw new Error('User not found')
       }
 
-      if (Number(user.balance) < amount) {
+      if (user.balance < amount) {
         throw new Error('Insufficient balance')
       }
-
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          balance: {
-            decrement: amount,
-          },
-        },
-      })
 
       const bet = await tx.bet.create({
         data: {
           userId,
           gameId,
           amount: amount,
-          status: 'PLACED',
+          status: BetStatus.PLACED,
         },
       })
 
-      await tx.ledger.create({
-        data: {
-          userId,
-          betId: bet.id,
-          type: 'BET_DEBIT',
-          amount: -amount,
-          description: `Bet placed for game ${gameId}`,
-        },
+      // 使用账本服务记录扣款
+      await LedgerService.applyLedgerEntry(tx, {
+        userId,
+        betId: bet.id,
+        amount: -amount,
+        type: 'BET_DEBIT',
+        description: `Bet placed for game ${gameId}`,
       })
 
       return bet
@@ -70,47 +62,37 @@ export class BetService {
    * @returns 更新后的下注对象
    * @throws Error 如果下注不存在或状态不是 PLACED
    */
-  static async settleBet(betId: string, result: 'WIN' | 'LOSE') {
+  static async settleBet(betId: number, result: BetResult) {
     return await prisma.$transaction(async (tx) => {
       const bet = await tx.bet.findUnique({
         where: { id: betId },
-        include: { user: true },
       })
 
       if (!bet) {
         throw new Error('Bet not found')
       }
 
-      if (bet.status !== 'PLACED') {
+      if (bet.status !== BetStatus.PLACED) {
         throw new Error('Bet can only be settled from PLACED status')
       }
 
-      if (result === 'WIN') {
-        const payout = Number(bet.amount) * 2
-        await tx.user.update({
-          where: { id: bet.userId },
-          data: {
-            balance: {
-              increment: payout,
-            },
-          },
-        })
-
-        await tx.ledger.create({
-          data: {
-            userId: bet.userId,
-            betId: bet.id,
-            type: 'BET_CREDIT',
-            amount: payout,
-            description: `Bet won - payout`,
-          },
+      if (result === BetResult.WIN) {
+        const payout = bet.amount * 2
+        // 使用账本服务记录奖金
+        await LedgerService.applyLedgerEntry(tx, {
+          userId: bet.userId,
+          betId: bet.id,
+          amount: payout,
+          type: 'BET_CREDIT',
+          description: `Bet won - payout`,
         })
       }
 
       const updatedBet = await tx.bet.update({
         where: { id: betId },
         data: {
-          status: 'SETTLED',
+          status: BetStatus.SETTLED,
+          result,
         },
       })
 
@@ -126,7 +108,7 @@ export class BetService {
    * @returns 更新后的下注对象
    * @throws Error 如果下注不存在或状态不是 PLACED
    */
-  static async cancelBet(betId: string) {
+  static async cancelBet(betId: number) {
     return await prisma.$transaction(async (tx) => {
       const bet = await tx.bet.findUnique({
         where: { id: betId },
@@ -136,33 +118,23 @@ export class BetService {
         throw new Error('Bet not found')
       }
 
-      if (bet.status !== 'PLACED') {
+      if (bet.status !== BetStatus.PLACED) {
         throw new Error('Bet can only be cancelled from PLACED status')
       }
 
-      await tx.user.update({
-        where: { id: bet.userId },
-        data: {
-          balance: {
-            increment: Number(bet.amount),
-          },
-        },
-      })
-
-      await tx.ledger.create({
-        data: {
-          userId: bet.userId,
-          betId: bet.id,
-          type: 'BET_REFUND',
-          amount: Number(bet.amount),
-          description: `Bet cancelled - refund`,
-        },
+      // 使用账本服务记录退款
+      await LedgerService.applyLedgerEntry(tx, {
+        userId: bet.userId,
+        betId: bet.id,
+        amount: bet.amount,
+        type: 'BET_REFUND',
+        description: `Bet cancelled - refund`,
       })
 
       const updatedBet = await tx.bet.update({
         where: { id: betId },
         data: {
-          status: 'CANCELLED',
+          status: BetStatus.CANCELLED,
         },
       })
 
@@ -175,7 +147,7 @@ export class BetService {
    * @param betId - 下注 ID
    * @returns 下注对象（包含用户信息）
    */
-  static async getBetById(betId: string) {
+  static async getBetById(betId: number) {
     return await prisma.bet.findUnique({
       where: { id: betId },
       include: { user: true },
