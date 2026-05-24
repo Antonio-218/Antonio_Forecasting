@@ -383,11 +383,7 @@ PLACED → CANCELLED (refund)
 Swagger API 文档：http://localhost:3000/api-docs
 
 
-<<<<<<< HEAD
 
-## 许可证
-=======
->>>>>>> f9136d7ba518aff9c2b301cc6eb2ffffea8da448
 
 ## 许可证
 
