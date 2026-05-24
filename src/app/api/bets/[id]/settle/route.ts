@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BetService } from '@/lib/services/bet.service'
+import { BetResult } from '@/types'
 
 /**
  * 结算下注接口
  * POST /api/bets/:id/settle
- * 
+ *
  * 功能：结算指定下注，赢取时返还 2 倍金额，输则无返还
  * 状态流转：PLACED → SETTLED
  */
@@ -17,7 +18,7 @@ export async function POST(
     const { result } = body
 
     // 验证结算结果
-    if (result !== 'WIN' && result !== 'LOSE') {
+    if (result !== BetResult.WIN && result !== BetResult.LOSE) {
       return NextResponse.json(
         { error: 'Invalid result. Must be WIN or LOSE' },
         { status: 400 }
@@ -25,7 +26,7 @@ export async function POST(
     }
 
     // 调用服务层结算下注
-    const bet = await BetService.settleBet(params.id, result)
+    const bet = await BetService.settleBet(parseInt(params.id), result)
 
     return NextResponse.json({
       id: bet.id,
